@@ -7,6 +7,7 @@ import com.itheima.reggie.service.UserService;
 import com.itheima.reggie.utils.ValidateCodeUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @Slf4j
@@ -23,6 +25,8 @@ public class UserController {
     @Resource
     private UserService userService;
 
+    @Resource
+    private RedisTemplate<String, String> redisTemplate;
 
     /**
      * 用户注册
@@ -44,7 +48,9 @@ public class UserController {
 
 //            SMSUtils.sendMessage("SMS_205897619", user.getPhone(), code, null);
 
-            session.setAttribute(phone, code);
+//            session.setAttribute(phone, code);
+
+            redisTemplate.opsForValue().set(phone, code, 5, TimeUnit.MINUTES);
 
             return R.success("发送成功");
         } else {
@@ -62,28 +68,32 @@ public class UserController {
     @PostMapping("/login")
     public R<User> login(@RequestBody Map<String, String> map, HttpSession session) {
 
-        String userphone = map.get("phone");
+        String UserPhone = map.get("phone");
 
-        String usercode = map.get("code");
+        String UserCode = map.get("code");
 
-        Object codeInSession = session.getAttribute(userphone);
+//        Object codeInSession = session.getAttribute(UserPhone);
 
-        if (codeInSession == null || !codeInSession.equals(usercode)) {
+        Object codeInSession = redisTemplate.opsForValue().get(UserPhone);
+
+        if (codeInSession == null || !codeInSession.equals(UserCode)) {
             return R.error("验证码错误");
         }
 
         LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
 
-        queryWrapper.eq(User::getPhone, userphone);
+        queryWrapper.eq(User::getPhone, UserPhone);
 
         User one = userService.getOne(queryWrapper);
 
         if (one == null) {
-            one = User.builder().phone(userphone).status(1).build();
+            one = User.builder().phone(UserPhone).status(1).build();
             userService.save(one);
         }
 
         session.setAttribute("user", one.getId());
+
+        redisTemplate.delete(UserPhone);
 
         return R.success(one);
 
