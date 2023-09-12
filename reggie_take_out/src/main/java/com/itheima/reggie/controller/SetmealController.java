@@ -14,6 +14,8 @@ import com.itheima.reggie.service.DishService;
 import com.itheima.reggie.service.SetmealDishService;
 import com.itheima.reggie.service.SetmealService;
 import org.springframework.beans.BeanUtils;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -38,6 +40,7 @@ public class SetmealController {
      * @param setmealDto
      * @return {@code R<String>}
      */
+    @CacheEvict(value = "setmealCache", allEntries = true)
     @PostMapping
     public R<String> save(@RequestBody SetmealDto setmealDto) {
         setmealService.saveWithDish(setmealDto);
@@ -94,6 +97,7 @@ public class SetmealController {
      * @return {@code R<String>}
      */
 
+    @CacheEvict(value = "setmealCache", allEntries = true)
     @DeleteMapping
     public R<String> delete(@RequestParam List<Long> ids) {
         setmealService.removeWithDish(ids);
@@ -107,6 +111,7 @@ public class SetmealController {
      * @return {@code R<List<Setmeal>>}
      */
     @GetMapping("/list")
+    @Cacheable(value = "setmealCache", key = "#setmeal.categoryId+'_'+#setmeal.status")
     public R<List<Setmeal>> list(Setmeal setmeal) {
 
         LambdaQueryWrapper<Setmeal> lambdaQueryWrapper = new LambdaQueryWrapper<>();
@@ -124,6 +129,7 @@ public class SetmealController {
      * @param id
      * @return {@code R<List<DishDto>>}
      */
+    @Cacheable(value = "setmealCache", key = "#id+'_dish'")
     @GetMapping("dish/{id}")
     public R<List<DishDto>> getSetmealDto(@PathVariable Long id) {
 
