@@ -28,10 +28,10 @@ public class SimpleRedisLock implements ILock {
 
     @Override
     public void unlock() {
-        String threadId = ID_PREFIX + Thread.currentThread().getId();
-        String id = redisTemplate.opsForValue().get(KEY_PREFIX + name);
-        if (threadId.equals(id)) {
-            redisTemplate.delete(KEY_PREFIX + name);
-        }
+//        String threadId = ID_PREFIX + Thread.currentThread().getId();
+//        String id = redisTemplate.opsForValue().get(KEY_PREFIX + name);
+//        if (threadId.equals(id)) {
+//            redisTemplate.delete(KEY_PREFIX + name);
+//    }
     }
 }
