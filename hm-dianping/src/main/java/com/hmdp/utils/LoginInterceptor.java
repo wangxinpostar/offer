@@ -1,5 +1,6 @@
 package com.hmdp.utils;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.dto.UserDTO;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -28,6 +29,8 @@ public class LoginInterceptor implements HandlerInterceptor {
         Map<Object, Object> userMap = redisTemplate.opsForHash().entries(RedisConstants.LOGIN_USER_KEY + request.getHeader("Authorization"));
 
         if (userMap.size() != 0) {
+            UserDTO userDTO = BeanUtil.toBean(userMap, UserDTO.class);
+            UserHolder.saveUser(userDTO);
             return true;
         }
 
