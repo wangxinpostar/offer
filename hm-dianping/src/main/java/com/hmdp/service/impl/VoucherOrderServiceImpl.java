@@ -8,8 +8,9 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
-import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedisTemplate<String, String> redisTemplate;
+
+    @Resource
+    private RedissonClient redissonClient;
 
     @Resource
     private RedisIdWorker redisIdWorker;
@@ -63,8 +67,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         Long userId = UserHolder.getUser().getId();
 
-        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
-        boolean isLock = lock.tryLock(5);
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+        boolean isLock = lock.tryLock();
+
+//        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
+//        boolean isLock = lock.tryLock(5);
 
         if (!isLock) {
             return Result.fail("不允许重复下单");
