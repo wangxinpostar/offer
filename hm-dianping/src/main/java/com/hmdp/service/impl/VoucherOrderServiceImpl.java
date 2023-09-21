@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.SeckillVoucher;
@@ -10,10 +11,8 @@ import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -21,9 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
+import java.time.Duration;
 import java.util.Collections;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -40,8 +40,8 @@ import java.util.concurrent.Executors;
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
-    private static final BlockingQueue<VoucherOrder> orderTasks = new ArrayBlockingQueue<>(1024 * 1024);
     private static final ExecutorService SECKILL_ORDER_EXECUTOP = Executors.newSingleThreadExecutor();
+    private static final String queueName = "stream.orders";
 
     static {
         SECKILL_SCRIPT = new DefaultRedisScript<>();
@@ -54,65 +54,50 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedisTemplate<String, String> redisTemplate;
     @Resource
-    private RedissonClient redissonClient;
-    @Resource
     private RedisIdWorker redisIdWorker;
-    private IVoucherOrderService proxy;
 
     @PostConstruct
     private void init() {
+
         SECKILL_ORDER_EXECUTOP.submit(() -> {
             while (true) {
+                try {
+                    List<MapRecord<String, Object, Object>> list = redisTemplate.opsForStream().read(
+                            Consumer.from("g1", "c1"),
+                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
+                            StreamOffset.create(queueName, ReadOffset.lastConsumed())
+                    );
+                    if (list == null || list.isEmpty()) {
+                        continue;
+                    }
+                    MapRecord<String, Object, Object> record = list.get(0);
+                    Map<Object, Object> values = record.getValue();
+                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
 
-                VoucherOrder voucherOrder = orderTasks.take();
-                handleVoucherOrder(voucherOrder);
+                    createVoucherOrder(voucherOrder);
 
+                    redisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+                } catch (Exception e) {
+                    handlePendingList();
+                }
             }
         });
     }
 
-    private void handleVoucherOrder(VoucherOrder voucherOrder) {
-        Long userId = voucherOrder.getUserId();
-        RLock lock = redissonClient.getLock("lock:order:" + userId);
-        boolean isLock = lock.tryLock();
-
-        if (!isLock) {
-            log.error("不允许重复下单");
-            return;
-        }
-
-        try {
-//            获取代理对象
-            proxy.createVoucherOrder(voucherOrder);
-        } finally {
-            lock.unlock();
-        }
-
-    }
 
     @Override
     public Result seckillVoucher(Long voucherId) {
 
         Long userId = UserHolder.getUser().getId();
+        Long orderId = redisIdWorker.nextId("order");
 
-        Long result = redisTemplate.execute(SECKILL_SCRIPT, Collections.emptyList(), voucherId.toString(), userId.toString());
+        Long result = redisTemplate.execute(SECKILL_SCRIPT, Collections.emptyList(), voucherId.toString(), userId.toString(), orderId.toString());
 
         int r = result.intValue();
 
         if (r != 0) {
             return Result.fail(r == 1 ? "库存不足" : "不能重复下单");
         }
-
-        VoucherOrder voucherOrder = new VoucherOrder();
-        Long orderId = redisIdWorker.nextId("order");
-        voucherOrder.setId(orderId);
-        voucherOrder.setUserId(userId);
-        voucherOrder.setVoucherId(voucherId);
-
-        orderTasks.add(voucherOrder);
-
-        proxy = (IVoucherOrderService) AopContext.currentProxy();
-
         return Result.ok(orderId);
 
     }
@@ -146,4 +131,32 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         save(voucherOrder);
     }
+
+    private void handlePendingList() {
+        while (true) {
+            try {
+                List<MapRecord<String, Object, Object>> list = redisTemplate.opsForStream().read(
+                        Consumer.from("g1", "c1"),
+                        StreamReadOptions.empty().count(1),
+                        StreamOffset.create(queueName, ReadOffset.from("0"))
+                );
+                if (list == null || list.isEmpty()) {
+                    break;
+                }
+                MapRecord<String, Object, Object> record = list.get(0);
+                Map<Object, Object> values = record.getValue();
+                VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
+                createVoucherOrder(voucherOrder);
+                redisTemplate.opsForStream().acknowledge("s1", "g1", record.getId());
+            } catch (Exception e) {
+                log.error("处理pending_list订单异常", e);
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException ex) {
+                    ex.printStackTrace();
+                }
+            }
+        }
+    }
+
 }
