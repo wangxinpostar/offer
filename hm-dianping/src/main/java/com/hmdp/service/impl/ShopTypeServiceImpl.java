@@ -45,7 +45,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
 
         }
 
-        List<ShopType> shopTypes = query().orderByAsc("sort").list();
+        List<ShopType> shopTypes = lambdaQuery().orderByAsc(ShopType::getSort).list();
 
         if (shopTypes == null || shopTypes.size() == 0) {
             return Result.fail("分类不存在");

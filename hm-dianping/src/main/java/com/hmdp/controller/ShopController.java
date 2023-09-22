@@ -76,8 +76,8 @@ public class ShopController {
             @RequestParam(value = "current", defaultValue = "1") Integer current
     ) {
         // 根据类型分页查询
-        Page<Shop> page = shopService.query()
-                .eq("type_id", typeId)
+        Page<Shop> page = shopService.lambdaQuery()
+                .eq(Shop::getTypeId, typeId)
                 .page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
         // 返回数据
         return Result.ok(page.getRecords());
@@ -96,8 +96,8 @@ public class ShopController {
             @RequestParam(value = "current", defaultValue = "1") Integer current
     ) {
         // 根据类型分页查询
-        Page<Shop> page = shopService.query()
-                .like(StrUtil.isNotBlank(name), "name", name)
+        Page<Shop> page = shopService.lambdaQuery()
+                .like(StrUtil.isNotBlank(name), Shop::getName, name)
                 .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
         // 返回数据
         return Result.ok(page.getRecords());
