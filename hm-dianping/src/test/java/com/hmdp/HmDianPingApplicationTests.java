@@ -14,13 +14,17 @@ import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @SpringBootTest
 class HmDianPingApplicationTests {
@@ -83,5 +87,42 @@ class HmDianPingApplicationTests {
 
         });
 
+    }
+
+    @Test
+    public void loadShopData() {
+        List<Shop> list = shopService.list();
+        Map<Long, List<Shop>> map = list.stream().collect(Collectors.groupingBy(Shop::getTypeId));
+        for (Map.Entry<Long, List<Shop>> entry : map.entrySet()) {
+
+            Long typeID = entry.getKey();
+            String key = RedisConstants.SHOP_GEO_KEY + typeID;
+
+            List<Shop> value = entry.getValue();
+
+            List<RedisGeoCommands.GeoLocation<String>> locations = new ArrayList<>();
+
+            value.forEach(shop -> locations.add(new RedisGeoCommands.GeoLocation<>(
+                            shop.getId().toString(),
+                            new Point(shop.getX(), shop.getY())
+                    )
+            ));
+            redisTemplate.opsForGeo().add(key, locations);
+        }
+    }
+
+    @Test
+    public void testHyperLogLog() {
+        String[] users = new String[1000];
+        int index = 0;
+        for (int i = 1; i <= 1000000; i++) {
+            users[index++] = "user_" + i;
+            if (i % 1000 == 0) {
+                index = 0;
+                redisTemplate.opsForHyperLogLog().add("hll1", users);
+            }
+        }
+        Long size = redisTemplate.opsForHyperLogLog().size("hll1");
+        System.out.println("size = " + size);
     }
 }

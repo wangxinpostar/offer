@@ -20,7 +20,13 @@ public class MvcConfig implements WebMvcConfigurer {
             "/blog/hot",
             "/shop/**",
             "/shop-type/**",
-            "/voucher/**"};
+            "/voucher/**",
+            "/swagger-resources/**",
+            "/webjars/**",
+            "/v3/**",
+            "/swagger-ui/**",
+            "/doc.html"
+    };
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 

@@ -14,14 +14,19 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -100,6 +105,58 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     public Result logout(HttpServletRequest request) {
         redisTemplate.delete(RedisConstants.LOGIN_USER_KEY + request.getHeader("Authorization"));
         return Result.ok("用户已退出");
+    }
+
+    @Override
+    public Result sign() {
+
+        Long userId = UserHolder.getUser().getId();
+
+        LocalDateTime now = LocalDateTime.now();
+
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+
+        String key = RedisConstants.USER_SIGN_KEY + userId + keySuffix;
+
+        int dayOfMonth = now.getDayOfMonth();
+
+        redisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
+
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount() {
+        Long userId = UserHolder.getUser().getId();
+
+        LocalDateTime now = LocalDateTime.now();
+
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+
+        String key = RedisConstants.USER_SIGN_KEY + userId + keySuffix;
+
+        int dayOfMonth = now.getDayOfMonth();
+
+        List<Long> result = redisTemplate.opsForValue().bitField(key, BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0));
+
+        if (result == null || result.isEmpty()) {
+            return Result.ok(0);
+        }
+        Long num = result.get(0);
+        int count = 0;
+        if (num == null || num == 0) {
+            return Result.ok(0);
+        }
+        while (num != 0) {
+            if ((num & 1) == 0) {
+                break;
+            } else {
+                count++;
+            }
+            num >>>= 1;
+        }
+
+        return Result.ok(count);
     }
 
     private User creatUserWithPhone(String loginPhone) {

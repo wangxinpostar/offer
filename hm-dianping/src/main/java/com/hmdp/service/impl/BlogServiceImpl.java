@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.Follow;
@@ -16,9 +17,11 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -42,7 +45,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private IUserService userService;
 
     @Resource
-    private RedisTemplate<String,String> redisTemplate;
+    private RedisTemplate<String, String> redisTemplate;
 
     @Resource
     private IFollowService followService;
@@ -149,13 +152,13 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         blog.setUserId(user.getId());
         // 2.保存探店笔记
         boolean isSuccess = save(blog);
-        if(!isSuccess){
+        if (!isSuccess) {
             return Result.fail("新增笔记失败!");
         }
         // 3.查询笔记作者的所有粉丝 select * from tb_follow where follow_user_id = ?
-        List<Follow> follows = followService.lambdaQuery().eq(Follow::getUserId, user.getId()).list();
+        List<Follow> follows = followService.lambdaQuery().eq(Follow::getFollowUserId, user.getId()).list();
         // 4.推送笔记id给所有粉丝
-        follows.forEach ( follow -> {
+        follows.forEach(follow -> {
             // 4.1.获取粉丝id
             Long userId = follow.getUserId();
             // 4.2.推送
@@ -169,7 +172,50 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Override
     public Result queryBlogOfFollow(Long max, Integer offset) {
-        return null;
+        Long userId = UserHolder.getUser().getId();
+
+        String key = FEED_KEY + userId;
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = redisTemplate.opsForZSet().reverseRangeByScoreWithScores(key, 0, max, offset, 3);
+
+        if (typedTuples == null || typedTuples.isEmpty()) return Result.ok();
+
+        List<Long> ids = new ArrayList<>(typedTuples.size());
+
+        long minTime = 0;
+
+        int os = 1;
+
+        for (ZSetOperations.TypedTuple<String> typedTuple : typedTuples) {
+
+            ids.add(Long.valueOf(typedTuple.getValue()));
+
+            long time = typedTuple.getScore().longValue();
+
+            if (time == minTime) {
+                os++;
+            } else {
+                minTime = time;
+                os = 1;
+            }
+        }
+
+        String sql = "ORDER BY FIELD(id," + StrUtil.join(",", ids) + ")";
+
+        List<Blog> blogs = lambdaQuery().in(Blog::getId, ids).last(sql).list();
+
+        blogs.forEach(blog -> {
+            queryBlogUser(blog);
+            isBlogLiked(blog);
+        });
+
+        ScrollResult r = new ScrollResult();
+
+        r.setList(blogs);
+        r.setOffset(os);
+        r.setMinTime(minTime);
+
+        return Result.ok(r);
+
     }
 
     private void queryBlogUser(Blog blog) {
