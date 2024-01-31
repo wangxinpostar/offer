@@ -16,7 +16,16 @@ import java.io.IOException;
 public class LoginCheckFilter implements Filter {
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
     private static final String[] urls =
-            {"/employee/login", "/employee/logout", "/backend/**", "/front/**", "/user/sendMsg", "/user/login"};
+            {"/employee/login",
+                    "/employee/logout",
+                    "/backend/**",
+                    "/front/**",
+                    "/user/sendMsg",
+                    "/user/login",
+                    "/doc.html",
+                    "/webjars/**",
+                    "/swagger-resources",
+                    "/v2/api-docs"};
 
     @Override
     public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
